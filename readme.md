@@ -14,9 +14,9 @@ conda activate GPT
 Install PyTorch, torchvision, torchaudio, and the necessary CUDA dependencies. Additionally, install the `transformers` library from Hugging Face and the Intel Math Kernel Library (MKL).
 
 ```sh
-conda install pytorch torchvision torchaudio pytorch-cuda=11.8 -c pytorch -c nvidia
+conda install pytorch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 pytorch-cuda=12.1 -c pytorch -c nvidia
 pip install transformers
-conda install mkl=2021.4.0
+pip install tiktoken
 ```
 
 #### 3. Install Specific Version of NumPy
