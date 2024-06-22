@@ -1,6 +1,5 @@
 # In-Depth Explaination Of Implementation
 
-huggingface gpt 2 
 This README section provides an explanation of the code used to verify a custom implementation of the GPT-2 model from scratch. The following details describe the configuration setup and initialization of the GPT model.
 
 #### Configuration Class
