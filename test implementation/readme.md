@@ -443,3 +443,179 @@ This script will load the GPT-2 model with the pre-trained weights and perform a
 If the terminal outputs "Did not crash," then you have successfully verified the implementation.
 
 By following these steps, you will ensure that your environment is set up correctly and that the GPT-2 implementation is verified and ready for further development.
+
+
+### Forward Pass Explanation
+
+The `forward` method processes the input token indices through the GPT model to generate logits and compute the loss if targets are provided. Here’s an in-depth explanation of each step in the forward pass:
+
+```python
+def forward(self, idx, targets=None):
+    # idx is of shape (B, T)
+    B, T = idx.size()
+    assert T <= self.config.block_size, f"Cannot forward sequence of length {T}, block size is only {self.config.block_size}"
+```
+
+- **Input Shape:** The input `idx` has shape `(B, T)`, where `B` is the batch size and `T` is the sequence length.
+- **Block Size Assertion:** Ensure that the sequence length `T` does not exceed the model’s maximum block size.
+
+```python
+    # forward the token and position embeddings
+    pos = torch.arange(0, T, dtype=torch.long, device=idx.device) # shape (T)
+    pos_emb = self.transformer.wpe(pos) # position embeddings of shape (T, n_embd)
+    tok_emb = self.transformer.wte(idx) # token embeddings of shape (B, T, n_embd)
+    x = tok_emb + pos_emb
+```
+
+- **Position Indices:** Create position indices from 0 to `T-1`.
+- **Position Embeddings:** Retrieve position embeddings using the position indices. This creates a tensor of shape `(T, n_embd)`.
+- **Token Embeddings:** Retrieve token embeddings using the input indices `idx`. This creates a tensor of shape `(B, T, n_embd)`.
+- **Sum Embeddings:** Add the position embeddings to the token embeddings. The position embeddings are broadcasted across the batch dimension, effectively aligning each token's positional context with its corresponding embedding.
+
+```python
+    # forward the blocks of the transformer
+    for block in self.transformer.layers:
+        x = block(x)
+```
+
+- **Transformer Blocks:** Iterate through each transformer block and pass the combined embeddings through them sequentially. Each block refines the representation of the input tokens.
+
+```python
+    # forward the final layer norm and the classifier
+    x = self.transformer.final_norm(x)
+    logits = self.lm_head(x) # (B, T, vocab_size)
+```
+
+- **Final Layer Normalization:** Apply layer normalization to the output of the last transformer block.
+- **Logits:** Pass the normalized output through the linear layer (`lm_head`) to produce logits of shape `(B, T, vocab_size)`. Each logit represents the unnormalized probability distribution over the vocabulary for the next token in the sequence.
+
+```python
+    loss = None
+    if targets is not None:
+        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
+    return logits, loss
+```
+
+- **Loss Calculation:** If target labels are provided, compute the cross-entropy loss between the predicted logits and the target labels. The logits and targets are reshaped to ensure proper alignment.
+- **Return:** Return the logits and the loss (if targets are provided).
+
+### Detailed Breakdown:
+
+1. **Input Indices (idx):**
+   - The input is a batch of sequences represented by token indices with shape `(B, T)`.
+   - Each row in `idx` is an independent sequence of token indices of length `T`, where `T` is the sequence length and must not exceed the block size.
+
+2. **Position and Token Embeddings:**
+   - Position embeddings are created for indices ranging from 0 to `T-1` and are broadcasted across the batch dimension.
+   - Token embeddings are retrieved using the input indices and are summed with the position embeddings to provide positional context to each token.
+
+3. **Transformer Blocks:**
+   - The combined embeddings are passed through each transformer block sequentially. These blocks consist of self-attention and feed-forward layers that refine the input representation.
+
+4. **Final Layer Normalization and Logits:**
+   - The output of the last transformer block is normalized, and logits are produced using a linear layer. Logits represent the unnormalized probabilities of the next token in the sequence for each position in the input.
+
+5. **Loss Calculation (if targets are provided):**
+   - If target labels are provided, the cross-entropy loss is computed between the predicted logits and the targets. This loss measures how well the model's predictions match the actual target tokens.
+
+6. **Output:**
+   - The method returns the logits and, if applicable, the computed loss. The logits are one softmax operation away from being converted into probabilities, representing the model's predictions for the next token in each position of the input sequence.
+
+This process ensures that the model generates appropriate predictions for the next tokens in the sequence, allowing for the generation of coherent text based on the input context.
+
+
+### Verifying by generating text
+
+This code demonstrates the process of generating text using a pre-trained GPT-2 model. The code initializes the model, encodes an input prompt, generates text iteratively by sampling from the model's output probabilities, and finally decodes and prints the generated text.
+
+#### Code Explanation
+
+1. **Initialization and Model Setup:**
+   ```python
+   num_return_sequences = 5
+   max_length = 30
+
+   model = GPT.from_pretrained('gpt2')
+   print("Did not crash")
+   model.eval()
+   model.to('cuda')
+   ```
+
+   - `num_return_sequences`: Number of sequences to generate.
+   - `max_length`: Maximum length of the generated sequences.
+   - `model = GPT.from_pretrained('gpt2')`: Load the pre-trained GPT-2 model.
+   - `model.eval()`: Set the model to evaluation mode.
+   - `model.to('cuda')`: Move the model to the GPU.
+
+2. **Token Encoding:**
+   ```python
+   import tiktoken
+   enc = tiktoken.get_encoding('gpt2')
+   tokens = enc.encode("Hello, I'm a language model,")
+   tokens = torch.tensor(tokens, dtype=torch.long) #(8, )
+   tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1) #(8, 1)
+   x = tokens.to('cuda')
+   ```
+
+   - `enc = tiktoken.get_encoding('gpt2')`: Get the tokenizer for GPT-2.
+   - `tokens = enc.encode("Hello, I'm a language model,")`: Encode the input prompt into tokens.
+   - `tokens = torch.tensor(tokens, dtype=torch.long)`: Convert tokens to a PyTorch tensor.
+   - `tokens = tokens.unsqueeze(0).repeat(num_return_sequences, 1)`: Create a batch of sequences with the same input prompt.
+   - `x = tokens.to('cuda')`: Move the tokens to the GPU.
+
+3. **Text Generation Loop:**
+   ```python
+   torch.manual_seed(42)
+   torch.cuda.manual_seed(42)
+   while x.size(1) < max_length:
+       with torch.no_grad():
+           logits, _ = model(x) # (B, T, vocab_size)
+           logits = logits[:, -1, :] # (B, vocab_size)
+           probs = F.softmax(logits, dim=-1)
+           topk_probs, topk_indices = torch.topk(probs, 50, dim=-1)
+           ix = torch.multinomial(topk_probs, 1) # (B, 1)
+           xcol = torch.gather(topk_indices, -1, ix) # (B, 1)
+           x = torch.cat((x, xcol), dim=1)
+   ```
+
+   - **Set Seed:**
+     - `torch.manual_seed(42)`: Set the random seed for reproducibility.
+     - `torch.cuda.manual_seed(42)`: Set the random seed for CUDA.
+
+   - **Generation Loop:**
+     - `while x.size(1) < max_length`: Continue generating tokens until the sequence length reaches `max_length`.
+     - `with torch.no_grad()`: Disable gradient calculation for efficiency.
+     - `logits, _ = model(x)`: Forward pass through the model to get logits.
+     - `logits = logits[:, -1, :]`: Extract logits for the last token in each sequence.
+     - `probs = F.softmax(logits, dim=-1)`: Convert logits to probabilities using softmax.
+     - `topk_probs, topk_indices = torch.topk(probs, 50, dim=-1)`: Perform top-k sampling with `k=50`.
+     - `ix = torch.multinomial(topk_probs, 1)`: Sample the next token from the top-k probabilities.
+     - `xcol = torch.gather(topk_indices, -1, ix)`: Get the indices of the sampled tokens.
+     - `x = torch.cat((x, xcol), dim=1)`: Append the sampled tokens to the sequence.
+
+4. **Decoding and Printing Generated Text:**
+   ```python
+   for i in range(num_return_sequences):
+       tokens = x[i, :max_length].tolist()
+       decoded = enc.decode(tokens)
+       print(">", decoded)
+   ```
+
+   - **Loop Through Sequences:**
+     - Iterate through each generated sequence.
+     - `tokens = x[i, :max_length].tolist()`: Extract tokens from the generated sequence.
+     - `decoded = enc.decode(tokens)`: Decode tokens to text.
+     - `print(">", decoded)`: Print the generated text.
+
+5. **Successful Output**
+```python
+loading weights from pretrained gpt: gpt2
+Did not crash
+> Hello, I'm a language model, not a program.
+
+So this morning I started studying for the interview in the lab. This was not
+> Hello, I'm a language model, and one of the reasons I love studying languages, to think that it can be a lot easier for those who
+> Hello, I'm a language model, and I wrote it off on the grounds that a language model would make me more fluent. But I'm not
+> Hello, I'm a language model, I really like languages. I like languages because like, they're good. And the way we talk about languages
+> Hello, I'm a language model, a language model I'm using for data modelling. All I did was test the results and then I wrote some
+```
