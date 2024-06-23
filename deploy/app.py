@@ -1,7 +1,7 @@
 from flask import Flask, request, jsonify, render_template
 import torch
 import torch.nn.functional as F
-from gpt2_pytorch import GPT, GPTConfig  # Make sure your gpt2_pytorch.py is in the same directory or properly imported
+from gpt2_pytorch import GPT, GPTConfig  
 import tiktoken
 
 app = Flask(__name__)

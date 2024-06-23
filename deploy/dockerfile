@@ -1,0 +1,14 @@
+FROM python:3.10
+
+WORKDIR /app
+
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir -r requirements.txt
+
+RUN pip install torch torchvision torchaudio --extra-index-url https://download.pytorch.org/whl/cu121
+
+COPY . .
+EXPOSE 5000
+
+CMD ["python", "app.py"]
